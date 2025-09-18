@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { notifyEmail } from '../notify';
 
 export default function PlaceBid(){
   const { eventId } = useParams();
@@ -45,6 +46,10 @@ export default function PlaceBid(){
     </div>;
   }
 
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
   async function submitBid(e){
     e.preventDefault();
     setBusy(true); setErr('');
@@ -60,6 +65,29 @@ export default function PlaceBid(){
       };
       const { error } = await supabase.from('bids').insert(payload);
       if (error) throw error;
+
+      // 🎯 E-mail naar de owner van dit event
+      // We gebruiken users.display_name als e-mailadres (zoals eerder ingesteld).
+      const { data: ownerProfile } = await supabase
+        .from('users').select('display_name')
+        .eq('id', event.owner_id).single();
+
+      const ownerEmail = ownerProfile?.display_name || null;
+      if (ownerEmail) {
+        const subject = `Nieuw bod op jouw event: ${event.title}`;
+        const html = `
+          <div style="font-family:system-ui; line-height:1.5">
+            <h2>Nieuw bod op "${escapeHtml(event.title || '')}"</h2>
+            <p>Bedrag: <b>€ ${amt.toFixed(2)}</b></p>
+            ${message ? `<p><b>Bericht van cateraar:</b><br/>${escapeHtml(message)}</p>` : ''}
+            <p>Bekijk alle biedingen: <a href="${location.origin}/events/${eventId}/bids">${location.origin}/events/${eventId}/bids</a></p>
+            <hr/>
+            <small>Catermatch</small>
+          </div>
+        `;
+        await notifyEmail({ to: ownerEmail, subject, html });
+      }
+
       nav('/bids/mine');
     } catch (e) {
       setErr(e.message ?? String(e));

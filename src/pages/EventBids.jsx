@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { notifyEmail } from '../notify';
 
 export default function EventBids(){
   const { eventId } = useParams();
@@ -67,8 +68,7 @@ export default function EventBids(){
         if (error) throw error;
       }
 
-      // 4) Chat ophalen of aanmaken en DIRECT naartoe navigeren
-      // Bestaat er al een chat tussen deze owner/caterer voor dit event?
+      // 4) Chat ophalen of aanmaken
       const { data: existing, error: exErr } = await supabase
         .from('chats')
         .select('id')
@@ -78,29 +78,41 @@ export default function EventBids(){
         .maybeSingle();
       if (exErr) throw exErr;
 
-      if (existing?.id) {
-        nav(`/chats/${existing.id}`);
-        return;
+      let chatId = existing?.id;
+      if (!chatId) {
+        const { data: created, error: createErr } = await supabase
+          .from('chats')
+          .insert({ event_id: eventId, owner_id: event.owner_id, caterer_id: bid.caterer_id })
+          .select('id')
+          .single();
+        if (createErr) throw createErr;
+        chatId = created.id;
       }
 
-      // Zo niet: aanmaken en naar de chat gaan
-      const { data: created, error: createErr } = await supabase
-        .from('chats')
-        .insert({
-          event_id: eventId,
-          owner_id: event.owner_id,
-          caterer_id: bid.caterer_id
-        })
-        .select('id')
-        .single();
-      if (createErr) throw createErr;
+      // 🎯 E-mail naar de cateraar
+      const { data: catererProfile } = await supabase
+        .from('users').select('display_name')
+        .eq('id', bid.caterer_id).single();
+      const catererEmail = catererProfile?.display_name || null;
 
-      nav(`/chats/${created.id}`);
-      return;
+      if (catererEmail) {
+        const subject = `Je bod is geaccepteerd: ${event.title}`;
+        const html = `
+          <div style="font-family:system-ui; line-height:1.5">
+            <h2>Gefeliciteerd! Je bod is geaccepteerd</h2>
+            <p>Event: <b>${escapeHtml(event.title || '')}</b></p>
+            <p>Bedrag: <b>€ ${Number(bid.amount).toFixed(2)}</b></p>
+            <p>Je kunt nu chatten met de owner: <a href="${location.origin}/chats/${chatId}">${location.origin}/chats/${chatId}</a></p>
+            <hr/>
+            <small>Catermatch</small>
+          </div>
+        `;
+        await notifyEmail({ to: catererEmail, subject, html });
+      }
 
+      nav(`/chats/${chatId}`);
     } catch (e) {
       setErr(e.message ?? String(e));
-      // Fallback: ververs lokaal de data zodat UI consistent blijft
       const { data: refreshed } = await supabase.from('bids').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
       setBids(refreshed || []);
       const { data: ev2 } = await supabase.from('events').select('*').eq('id', eventId).single();
@@ -110,13 +122,16 @@ export default function EventBids(){
     }
   }
 
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
   async function rejectBid(bid){
     setErr('');
     setBusyId(bid.id);
     try {
       const { error } = await supabase.from('bids').update({ status: 'rejected' }).eq('id', bid.id);
       if (error) throw error;
-      // lijst herladen
       const { data: refreshed } = await supabase.from('bids').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
       setBids(refreshed || []);
     } catch (e) {
