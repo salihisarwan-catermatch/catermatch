@@ -31,15 +31,17 @@ export default function Layout({ children, profile }){
             <>
               <Link to="/events/open" style={{color:'#fff', textDecoration:'none'}}>Open events</Link>
               <Link to="/bids/mine" style={{color:'#fff', textDecoration:'none'}}>Mijn biedingen</Link>
+              <Link to="/profile" style={{color:'#fff', textDecoration:'none'}}>Mijn profiel</Link>
             </>
           )}
 
-          {/* Altijd zichtbaar */}
-          <Link to="/profile" style={{color:'#fff', textDecoration:'none'}}>Mijn profiel</Link>
           <Link to="/chats/mine" style={{color:'#fff', textDecoration:'none'}}>Mijn chats</Link>
         </div>
 
-        <button onClick={logout} style={{background:'crimson', color:'#fff', border:'none', padding:'6px 12px', borderRadius:4}}>
+        <button
+          onClick={logout}
+          style={{background:'crimson', color:'#fff', border:'none', padding:'6px 12px', borderRadius:4}}
+        >
           Uitloggen
         </button>
       </div>
