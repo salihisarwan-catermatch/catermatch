@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
+
+// Pagina's
 import SignUp from './pages/SignUp.jsx';
 import Login from './pages/Login.jsx';
 import NewEvent from './pages/NewEvent.jsx';
@@ -11,6 +13,9 @@ import MyBids from './pages/MyBids.jsx';
 import EventBids from './pages/EventBids.jsx';
 import MyChats from './pages/MyChats.jsx';
 import ChatThread from './pages/ChatThread.jsx';
+import Profile from './pages/Profile.jsx';
+
+// Layout met menubalk
 import Layout from './Layout.jsx';
 
 function useSession(){
@@ -54,7 +59,7 @@ function RequireAuth({ children }) {
 
   return (
     <Layout profile={profile}>
-      {children(profile)}
+      {typeof children === 'function' ? children(profile) : children}
     </Layout>
   );
 }
@@ -62,26 +67,34 @@ function RequireAuth({ children }) {
 export default function App(){
   return (
     <Routes>
-      <Route path="/" element={
-        <RequireAuth>{(profile) => <Dashboard profile={profile} />}</RequireAuth>
-      } />
+      {/* Home / Dashboard */}
+      <Route
+        path="/"
+        element={<RequireAuth>{(profile) => <Dashboard profile={profile} />}</RequireAuth>}
+      />
+
+      {/* Auth */}
       <Route path="/signup" element={<SignUp />} />
       <Route path="/login" element={<Login />} />
 
-      {/* Owner */}
+      {/* Owner-routes */}
       <Route path="/events/new" element={<RequireAuth>{() => <NewEvent />}</RequireAuth>} />
       <Route path="/events/mine" element={<RequireAuth>{() => <MyEvents />}</RequireAuth>} />
       <Route path="/events/:eventId/bids" element={<RequireAuth>{() => <EventBids />}</RequireAuth>} />
 
-      {/* Caterer */}
+      {/* Caterer-routes */}
       <Route path="/events/open" element={<RequireAuth>{() => <OpenEvents />}</RequireAuth>} />
       <Route path="/events/:eventId/bid" element={<RequireAuth>{() => <PlaceBid />}</RequireAuth>} />
       <Route path="/bids/mine" element={<RequireAuth>{() => <MyBids />}</RequireAuth>} />
 
-      {/* Chats */}
+      {/* Chats (beide rollen) */}
       <Route path="/chats/mine" element={<RequireAuth>{() => <MyChats />}</RequireAuth>} />
       <Route path="/chats/:chatId" element={<RequireAuth>{() => <ChatThread />}</RequireAuth>} />
 
+      {/* Nieuw: Mijn profiel (beide rollen) */}
+      <Route path="/profile" element={<RequireAuth>{() => <Profile />}</RequireAuth>} />
+
+      {/* Fallback */}
       <Route path="*" element={<div style={{padding:20}}>Pagina niet gevonden.</div>} />
     </Routes>
   );
