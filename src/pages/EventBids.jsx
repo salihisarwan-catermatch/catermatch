@@ -53,22 +53,22 @@ export default function EventBids(){
     setErr('');
     setBusyId(bid.id);
     try {
-      // 1) Zet gekozen bod op accepted
+      // 1) gekozen bod op accepted
       let { error: e1 } = await supabase.from('bids').update({ status: 'accepted' }).eq('id', bid.id);
       if (e1) throw e1;
 
-      // 2) Markeer event als booked
+      // 2) event op booked
       let { error: e2 } = await supabase.from('events').update({ status: 'booked' }).eq('id', eventId);
       if (e2) throw e2;
 
-      // 3) Zet andere bids op rejected (die nog 'sent' zijn)
+      // 3) overige bids naar rejected
       const otherIds = bids.filter(b => b.id !== bid.id && b.status === 'sent').map(b => b.id);
       for (const oid of otherIds) {
         const { error } = await supabase.from('bids').update({ status: 'rejected' }).eq('id', oid);
         if (error) throw error;
       }
 
-      // 4) Chat ophalen of aanmaken
+      // 4) chat halen of maken
       const { data: existing, error: exErr } = await supabase
         .from('chats')
         .select('id')
@@ -91,9 +91,9 @@ export default function EventBids(){
 
       // 🎯 E-mail naar de cateraar
       const { data: catererProfile } = await supabase
-        .from('users').select('display_name')
+        .from('users').select('email')
         .eq('id', bid.caterer_id).single();
-      const catererEmail = catererProfile?.display_name || null;
+      const catererEmail = catererProfile?.email || null;
 
       if (catererEmail) {
         const subject = `Je bod is geaccepteerd: ${event.title}`;
@@ -156,13 +156,20 @@ export default function EventBids(){
         {bids.length === 0 && <p>Nog geen biedingen.</p>}
         {bids.map(b => (
           <div key={b.id} style={{border:'1px solid #ddd', borderRadius:8, padding:12}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap'}}>
               <h3 style={{margin:'4px 0'}}>Bod: € {Number(b.amount).toFixed(2)}</h3>
               <span style={{padding:'2px 8px', borderRadius:999, border:'1px solid #ccc', fontSize:12}}>
                 {b.status}
               </span>
             </div>
+
             {b.message && <p style={{marginTop:6}}>{b.message}</p>}
+
+            {/* Nieuw: link naar publieke profielpagina van de cateraar */}
+            <div style={{marginTop:6, fontSize:14}}>
+              <Link to={`/caterers/${b.caterer_id}`}>Bekijk profiel van deze cateraar</Link>
+            </div>
+
             <div style={{display:'flex', gap:8, marginTop:8}}>
               <button
                 disabled={busyId === b.id || event.status === 'booked' || b.status !== 'sent'}

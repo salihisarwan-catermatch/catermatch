@@ -14,6 +14,7 @@ import EventBids from './pages/EventBids.jsx';
 import MyChats from './pages/MyChats.jsx';
 import ChatThread from './pages/ChatThread.jsx';
 import Profile from './pages/Profile.jsx';
+import PublicProfile from './pages/PublicProfile.jsx';
 
 // Layout met menubalk
 import Layout from './Layout.jsx';
@@ -91,8 +92,9 @@ export default function App(){
       <Route path="/chats/mine" element={<RequireAuth>{() => <MyChats />}</RequireAuth>} />
       <Route path="/chats/:chatId" element={<RequireAuth>{() => <ChatThread />}</RequireAuth>} />
 
-      {/* Nieuw: Mijn profiel (beide rollen) */}
+      {/* Cateraar-profielen */}
       <Route path="/profile" element={<RequireAuth>{() => <Profile />}</RequireAuth>} />
+      <Route path="/caterers/:userId" element={<RequireAuth>{() => <PublicProfile />}</RequireAuth>} />
 
       {/* Fallback */}
       <Route path="*" element={<div style={{padding:20}}>Pagina niet gevonden.</div>} />
