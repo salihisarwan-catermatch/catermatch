@@ -17,7 +17,7 @@ export default function ChatThread(){
     supabase.auth.getSession().then(({data}) => setSession(data.session));
   }, []);
 
-  // Chat ophalen (en autorisatie via RLS)
+  // Chat ophalen (RLS beschermt toegang)
   useEffect(() => {
     if (!chatId) return;
     supabase.from('chats').select('*').eq('id', chatId).maybeSingle()
@@ -27,7 +27,7 @@ export default function ChatThread(){
       });
   }, [chatId]);
 
-  // Berichten ophalen
+  // Berichten laden (en signed URL’s toevoegen)
   async function loadMessages(){
     const { data, error } = await supabase
       .from('messages')
@@ -36,21 +36,20 @@ export default function ChatThread(){
       .order('created_at', { ascending: true });
     if (error) { console.error(error); setMessages([]); return; }
 
-    // Voor elk bericht met file: maak signed URL
     const withUrls = await Promise.all((data || []).map(async (m) => {
       if (m.file?.path) {
-        const { data: signed, error: sErr } = await supabase
+        const { data: signed } = await supabase
           .storage
           .from('chats')
-          .createSignedUrl(m.file.path, 60 * 60); // 1 uur geldig
-        if (!sErr && signed?.signedUrl) {
+          .createSignedUrl(m.file.path, 60 * 60); // 1 uur
+        if (signed?.signedUrl) {
           return { ...m, file: { ...m.file, signedUrl: signed.signedUrl } };
         }
       }
       return m;
     }));
+
     setMessages(withUrls);
-    // Auto-scroll
     setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
   }
 
@@ -90,7 +89,7 @@ export default function ChatThread(){
 
       setText('');
       setFile(null);
-      await loadMessages();
+      await loadMessages(); // handmatig verversen na versturen
     } catch (e) {
       setErr(e.message ?? String(e));
     } finally {
@@ -148,6 +147,7 @@ export default function ChatThread(){
           style={{maxWidth:220}}
         />
         <button disabled={busy}>{busy ? 'Versturen…' : 'Verstuur'}</button>
+        <button type="button" onClick={loadMessages} style={{marginLeft:8}}>Verversen</button>
       </form>
 
       {err && <div style={{color:'crimson', marginTop:8}}>{err}</div>}
