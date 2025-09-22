@@ -3,10 +3,15 @@ import { supabase } from '../supabase';
 
 export default function Profile(){
   const [session, setSession] = useState(null);
-  const [me, setMe] = useState(null);          // bevat rol en straks de hele user
+  const [me, setMe] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
+
+  // Portfolio state
+  const [portfolio, setPortfolio] = useState([]);       // [{name, url}]
+  const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState('');         // object name being removed
 
   useEffect(() => {
     supabase.auth.getSession().then(({data}) => setSession(data.session));
@@ -25,15 +30,18 @@ export default function Profile(){
           specialties: Array.isArray(data?.specialties) ? data.specialties : [],
           logo_url: data?.logo_url ?? '',
           city: data?.city ?? '',
-          website: data?.website ?? ''
+          website: data?.website ?? '',
+          min_price: Number.isFinite(data?.min_price) ? data.min_price : '',
+          price_note: data?.price_note ?? ''
         });
       });
   }, [session]);
 
+  // Cateraar-only
   if (!session || !me) return <div style={{padding:20}}>Laden…</div>;
-  if (me.role !== 'caterer') {
-    return <div style={{padding:20}}>Deze pagina is alleen voor cateraars.</div>;
-  }
+  if (me.role !== 'caterer') return <div style={{padding:20}}>Deze pagina is alleen voor cateraars.</div>;
+
+  /* ---------- Helpers ---------- */
 
   async function uploadLogo(file){
     if (!file || !session) return null;
@@ -43,6 +51,28 @@ export default function Profile(){
     const { data: pub } = await supabase.storage.from('profiles').getPublicUrl(path);
     return pub.publicUrl;
   }
+
+  // Portfolio laden
+  async function loadPortfolio() {
+    if (!session) return;
+    const prefix = `${session.user.id}/`;
+    const { data, error } = await supabase.storage.from('portfolio').list(prefix, { limit: 100, offset: 0 });
+    if (error) { console.error(error); return; }
+    const items = data || [];
+    const urls = await Promise.all(items.map(async (it) => {
+      const fullName = `${prefix}${it.name}`;
+      const { data: pub } = await supabase.storage.from('portfolio').getPublicUrl(fullName);
+      return { name: fullName, url: pub.publicUrl };
+    }));
+    setPortfolio(urls);
+  }
+
+  useEffect(() => {
+    loadPortfolio();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id]);
+
+  /* ---------- Submit ---------- */
 
   async function onSubmit(e){
     e.preventDefault();
@@ -57,19 +87,27 @@ export default function Profile(){
       const specsRaw = form.get('specialties')?.toString() || '';
       const specialties = specsRaw.split(',').map(s => s.trim()).filter(Boolean);
 
+      // Prijsvelden
+      const minPriceRaw = form.get('min_price')?.toString().trim();
+      const min_price = minPriceRaw === '' ? null : Number.parseInt(minPriceRaw, 10);
+      if (min_price != null && (Number.isNaN(min_price) || min_price < 0)) {
+        throw new Error('“Prijs vanaf” moet een getal ≥ 0 zijn.');
+      }
+      const price_note = form.get('price_note')?.toString().trim() || null;
+
+      // Logo uploaden (optioneel)
       let logo_url = me.logo_url || null;
       const file = form.get('logo');
       if (file && file.size > 0) {
         logo_url = await uploadLogo(file);
       }
 
-      const payload = { company_name, bio, city, website, specialties, logo_url };
+      const payload = { company_name, bio, city, website, specialties, logo_url, min_price, price_note };
       const { error } = await supabase.from('users').update(payload).eq('id', session.user.id);
       if (error) throw error;
 
       setOk('Opgeslagen!');
-
-      // Herladen om state te syncen
+      // herladen
       const { data: fresh } = await supabase.from('users').select('*').eq('id', session.user.id).single();
       setMe({
         ...fresh,
@@ -78,21 +116,60 @@ export default function Profile(){
         specialties: Array.isArray(fresh?.specialties) ? fresh.specialties : [],
         logo_url: fresh?.logo_url ?? '',
         city: fresh?.city ?? '',
-        website: fresh?.website ?? ''
+        website: fresh?.website ?? '',
+        min_price: Number.isFinite(fresh?.min_price) ? fresh.min_price : '',
+        price_note: fresh?.price_note ?? ''
       });
-    } catch (e) {
-      setErr(e.message ?? String(e));
+    } catch (e2) {
+      setErr(e2.message ?? String(e2));
     } finally {
       setBusy(false);
     }
   }
 
+  /* ---------- Portfolio uploads ---------- */
+
+  async function onUploadPortfolio(e){
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true); setErr('');
+    try {
+      for (const file of files) {
+        const path = `${session.user.id}/${crypto.randomUUID()}-${file.name}`;
+        const { error } = await supabase.storage.from('portfolio').upload(path, file);
+        if (error) throw error;
+      }
+      await loadPortfolio();
+      e.target.value = ''; // reset input
+    } catch (e2) {
+      setErr(e2.message ?? String(e2));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removePortfolioItem(name){
+    setRemoving(name); setErr('');
+    try {
+      const { error } = await supabase.storage.from('portfolio').remove([name]);
+      if (error) throw error;
+      setPortfolio(p => p.filter(it => it.name !== name));
+    } catch (e2) {
+      setErr(e2.message ?? String(e2));
+    } finally {
+      setRemoving('');
+    }
+  }
+
+  /* ---------- UI ---------- */
+
   return (
-    <div style={{maxWidth:720, margin:'40px auto', fontFamily:'system-ui'}}>
+    <div style={{maxWidth:900, margin:'40px auto', fontFamily:'system-ui'}}>
       <h1>Mijn profiel</h1>
       <p style={{color:'#555'}}>Account: <b>{session.user.email}</b> • Rol: <b>{me.role}</b></p>
 
       <form onSubmit={onSubmit} style={{display:'grid', gap:14, marginTop:16}}>
+        {/* Logo */}
         <div style={{display:'flex', gap:16, alignItems:'center'}}>
           <div style={{width:96, height:96, border:'1px solid #ddd', borderRadius:8, overflow:'hidden', background:'#f7f7f7'}}>
             {me.logo_url ? (
@@ -104,11 +181,11 @@ export default function Profile(){
           <div>
             <label style={{display:'block', fontWeight:600}}>Logo / foto</label>
             <input type="file" name="logo" accept="image/*" />
-            <div style={{fontSize:12, color:'#666'}}>JPG/PNG, ~5MB</div>
+            <div style={{fontSize:12, color:'#666'}}>JPG/PNG</div>
           </div>
         </div>
 
-        {/* Cateraar-specifiek veld */}
+        {/* Basisvelden */}
         <label>Bedrijfsnaam
           <input name="company_name" placeholder="Bijv. Taste & Co"
                  defaultValue={me.company_name} />
@@ -133,6 +210,18 @@ export default function Profile(){
           </label>
         </div>
 
+        {/* Prijsvelden */}
+        <div style={{display:'grid', gap:12, gridTemplateColumns:'1fr 1fr'}}>
+          <label>Prijs vanaf (€)
+            <input name="min_price" type="number" min="0" step="1" placeholder="Bijv. 250"
+                   defaultValue={me.min_price} />
+          </label>
+          <label>Prijs toelichting
+            <input name="price_note" placeholder="Bijv. excl. reiskosten"
+                   defaultValue={me.price_note} />
+          </label>
+        </div>
+
         <div style={{display:'flex', gap:10, alignItems:'center'}}>
           <button disabled={busy}>{busy ? 'Opslaan…' : 'Opslaan'}</button>
           {ok && <span style={{color:'green'}}>{ok}</span>}
@@ -140,6 +229,7 @@ export default function Profile(){
         </div>
       </form>
 
+      {/* Badges specialties */}
       {me.specialties?.length ? (
         <div style={{marginTop:16, display:'flex', gap:8, flexWrap:'wrap'}}>
           {me.specialties.map((s, i) => (
@@ -147,6 +237,39 @@ export default function Profile(){
           ))}
         </div>
       ) : null}
+
+      {/* ---------- Portfolio sectie ---------- */}
+      <hr style={{margin:'28px 0'}} />
+      <h2>Portfolio</h2>
+      <p style={{color:'#555', marginTop:4}}>Upload foto’s van eerdere opdrachten. (Publiek zichtbaar op je profiel.)</p>
+
+      <div style={{margin:'10px 0'}}>
+        <input type="file" accept="image/*" multiple onChange={onUploadPortfolio} disabled={uploading} />
+        {uploading && <span style={{marginLeft:8}}>Uploaden…</span>}
+      </div>
+
+      {/* Grid */}
+      {portfolio.length === 0 ? (
+        <div style={{color:'#666'}}>Nog geen portfolio-items.</div>
+      ) : (
+        <div style={{display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', marginTop:10}}>
+          {portfolio.map(item => (
+            <div key={item.name} style={{border:'1px solid #eee', borderRadius:8, overflow:'hidden', position:'relative'}}>
+              <img src={item.url} alt="" style={{width:'100%', height:130, objectFit:'cover', display:'block'}} />
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 8px'}}>
+                <a href={item.url} target="_blank" rel="noreferrer" style={{fontSize:12}}>Open</a>
+                <button
+                  onClick={() => removePortfolioItem(item.name)}
+                  disabled={removing === item.name}
+                  style={{fontSize:12}}
+                >
+                  {removing === item.name ? 'Verwijderen…' : 'Verwijderen'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
