@@ -4,26 +4,24 @@ import { supabase } from '../supabase';
 
 export default function PublicProfile(){
   const { userId } = useParams();
-  const [me, setMe] = useState(null);       // ingelogde user (optioneel)
   const [profile, setProfile] = useState(null);
   const [err, setErr] = useState('');
 
   useEffect(() => {
-    // Niet strikt nodig, maar handig als je later wilt personaliseren
-    supabase.auth.getSession().then(({data}) => setMe(data.session?.user ?? null));
-  }, []);
-
-  useEffect(() => {
-    if (!userId) return;
-    // Alleen-lezen profieldata ophalen
-    supabase.from('users')
-      .select('id, role, email, display_name, company_name, bio, specialties, logo_url, city, website')
-      .eq('id', userId)
-      .single()
-      .then(({ data, error }) => {
-        if (error) { setErr(error.message); return; }
-        setProfile(data);
-      });
+    let alive = true;
+    async function load(){
+      if (!userId) return;
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, role, display_name, company_name, bio, specialties, logo_url, city, website, min_price, price_note')
+        .eq('id', userId)
+        .single();
+      if (!alive) return;
+      if (error) { setErr(error.message); return; }
+      setProfile(data);
+    }
+    load();
+    return () => { alive = false; };
   }, [userId]);
 
   if (!profile && !err) return <div style={{padding:20}}>Profiel laden…</div>;
@@ -31,8 +29,17 @@ export default function PublicProfile(){
   if (!profile) return <div style={{padding:20}}>Geen profiel gevonden.</div>;
 
   const isCaterer = profile.role === 'caterer';
-  const title = profile.company_name || profile.display_name || profile.email || 'Cateraar';
+  const title = profile.company_name || profile.display_name || 'Cateraar';
   const websiteClean = profile.website?.startsWith('http') ? profile.website : (profile.website ? `https://${profile.website}` : null);
+
+  function euro(v){
+    if (v == null || Number.isNaN(Number(v))) return null;
+    try {
+      return Number(v).toLocaleString('nl-NL', { style:'currency', currency:'EUR' });
+    } catch {
+      return `€ ${v}`;
+    }
+  }
 
   return (
     <div style={{maxWidth:900, margin:'40px auto', fontFamily:'system-ui'}}>
@@ -40,6 +47,7 @@ export default function PublicProfile(){
         <Link to={document.referrer ? -1 : '/'}>← Terug</Link>
       </div>
 
+      {/* Header */}
       <div style={{display:'flex', gap:20, alignItems:'center', flexWrap:'wrap'}}>
         <div style={{width:120, height:120, border:'1px solid #ddd', borderRadius:12, overflow:'hidden', background:'#f7f7f7'}}>
           {profile.logo_url ? (
@@ -59,9 +67,22 @@ export default function PublicProfile(){
               Website: <a href={websiteClean} target="_blank" rel="noreferrer">{websiteClean}</a>
             </div>
           )}
+          {/* Prijsblok */}
+          {(profile.min_price != null || profile.price_note) && (
+            <div style={{marginTop:10, padding:'8px 10px', border:'1px solid #e5e5e5', borderRadius:8, background:'#fafafa'}}>
+              <div style={{fontWeight:600, marginBottom:4}}>Prijzen</div>
+              {profile.min_price != null && (
+                <div>Vanaf: <b>{euro(profile.min_price)}</b></div>
+              )}
+              {profile.price_note && (
+                <div style={{color:'#555', marginTop:2}}>{profile.price_note}</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Over */}
       {profile.bio && (
         <div style={{marginTop:16}}>
           <h3 style={{margin:'6px 0'}}>Over</h3>
@@ -69,7 +90,8 @@ export default function PublicProfile(){
         </div>
       )}
 
-      {profile.specialties?.length ? (
+      {/* Specialisaties */}
+      {Array.isArray(profile.specialties) && profile.specialties.length > 0 && (
         <div style={{marginTop:16}}>
           <h3 style={{margin:'6px 0'}}>Specialisaties</h3>
           <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
@@ -80,7 +102,9 @@ export default function PublicProfile(){
             ))}
           </div>
         </div>
-      ) : null}
+      )}
+
+      {/* Portfolio komt in stap 3B */}
     </div>
   );
 }
