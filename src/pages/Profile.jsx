@@ -1,61 +1,63 @@
-import { useEffect, useState } from 'react';
+// src/pages/Profile.jsx
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../supabase';
 
 export default function Profile(){
+  // ---- Hooks (NOOIT conditioneel) ----
   const [session, setSession] = useState(null);
   const [me, setMe] = useState(null);
+
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
 
-  // Portfolio state
-  const [portfolio, setPortfolio] = useState([]);       // [{name, url}]
+  // Portfolio
+  const [portfolio, setPortfolio] = useState([]);   // [{name, url}]
   const [uploading, setUploading] = useState(false);
-  const [removing, setRemoving] = useState('');         // object name being removed
+  const [removing, setRemoving] = useState('');
 
+  // 1) Session ophalen
   useEffect(() => {
-    supabase.auth.getSession().then(({data}) => setSession(data.session));
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      setSession(data.session ?? null);
+    });
+    return () => { alive = false; };
   }, []);
 
-  // User laden
+  // 2) User-profiel ophalen zodra we session hebben
   useEffect(() => {
-    if (!session) return;
-    supabase.from('users').select('*').eq('id', session.user.id).single()
-      .then(({ data, error }) => {
-        if (error) { console.error(error); return; }
-        setMe({
-          ...data,
-          company_name: data?.company_name ?? '',
-          bio: data?.bio ?? '',
-          specialties: Array.isArray(data?.specialties) ? data.specialties : [],
-          logo_url: data?.logo_url ?? '',
-          city: data?.city ?? '',
-          website: data?.website ?? '',
-          min_price: Number.isFinite(data?.min_price) ? data.min_price : '',
-          price_note: data?.price_note ?? ''
-        });
+    let alive = true;
+    async function run(){
+      if (!session) return;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+      if (!alive) return;
+      if (error) { console.error(error); return; }
+      setMe({
+        ...data,
+        company_name: data?.company_name ?? '',
+        bio: data?.bio ?? '',
+        specialties: Array.isArray(data?.specialties) ? data.specialties : [],
+        logo_url: data?.logo_url ?? '',
+        city: data?.city ?? '',
+        website: data?.website ?? '',
+        min_price: Number.isFinite(data?.min_price) ? data.min_price : '',
+        price_note: data?.price_note ?? ''
       });
+    }
+    run();
+    return () => { alive = false; };
   }, [session]);
 
-  // Cateraar-only
-  if (!session || !me) return <div style={{padding:20}}>Laden…</div>;
-  if (me.role !== 'caterer') return <div style={{padding:20}}>Deze pagina is alleen voor cateraars.</div>;
-
-  /* ---------- Helpers ---------- */
-
-  async function uploadLogo(file){
-    if (!file || !session) return null;
-    const path = `${session.user.id}/${crypto.randomUUID()}-${file.name}`;
-    const { error: upErr } = await supabase.storage.from('profiles').upload(path, file);
-    if (upErr) throw upErr;
-    const { data: pub } = await supabase.storage.from('profiles').getPublicUrl(path);
-    return pub.publicUrl;
-  }
-
-  // Portfolio laden
-  async function loadPortfolio() {
-    if (!session) return;
-    const prefix = `${session.user.id}/`;
+  // 3) Portfolio laden (afzonderlijk)
+  const loadPortfolio = useCallback(async (userId) => {
+    if (!userId) return;
+    const prefix = `${userId}/`;
     const { data, error } = await supabase.storage.from('portfolio').list(prefix, { limit: 100, offset: 0 });
     if (error) { console.error(error); return; }
     const items = data || [];
@@ -65,37 +67,49 @@ export default function Profile(){
       return { name: fullName, url: pub.publicUrl };
     }));
     setPortfolio(urls);
-  }
+  }, []);
 
   useEffect(() => {
-    loadPortfolio();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.id]);
+    if (session?.user?.id) loadPortfolio(session.user.id);
+  }, [session?.user?.id, loadPortfolio]);
 
-  /* ---------- Submit ---------- */
+  // ---- Afgeleide flags (geen hooks binnen conditionele paden) ----
+  const notReady = !session || !me;
+  const isNotCaterer = useMemo(() => {
+    return me && me.role !== 'caterer';
+  }, [me]);
+
+  // ---- Helpers (GEEN hooks hier binnen) ----
+  async function uploadLogo(file){
+    if (!file || !session) return null;
+    const path = `${session.user.id}/${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}-${file.name}`;
+    const { error: upErr } = await supabase.storage.from('profiles').upload(path, file);
+    if (upErr) throw upErr;
+    const { data: pub } = await supabase.storage.from('profiles').getPublicUrl(path);
+    return pub.publicUrl;
+  }
 
   async function onSubmit(e){
     e.preventDefault();
     setBusy(true); setErr(''); setOk('');
     try {
+      if (!session) throw new Error('Geen sessie.');
       const form = new FormData(e.target);
-      const company_name = form.get('company_name')?.toString().trim() || null;
-      const bio = form.get('bio')?.toString().trim() || null;
-      const city = form.get('city')?.toString().trim() || null;
-      const website = form.get('website')?.toString().trim() || null;
+      const company_name = (form.get('company_name')?.toString().trim() || '') || null;
+      const bio = (form.get('bio')?.toString().trim() || '') || null;
+      const city = (form.get('city')?.toString().trim() || '') || null;
+      const website = (form.get('website')?.toString().trim() || '') || null;
 
       const specsRaw = form.get('specialties')?.toString() || '';
       const specialties = specsRaw.split(',').map(s => s.trim()).filter(Boolean);
 
-      // Prijsvelden
       const minPriceRaw = form.get('min_price')?.toString().trim();
       const min_price = minPriceRaw === '' ? null : Number.parseInt(minPriceRaw, 10);
       if (min_price != null && (Number.isNaN(min_price) || min_price < 0)) {
         throw new Error('“Prijs vanaf” moet een getal ≥ 0 zijn.');
       }
-      const price_note = form.get('price_note')?.toString().trim() || null;
+      const price_note = (form.get('price_note')?.toString().trim() || '') || null;
 
-      // Logo uploaden (optioneel)
       let logo_url = me.logo_url || null;
       const file = form.get('logo');
       if (file && file.size > 0) {
@@ -107,7 +121,6 @@ export default function Profile(){
       if (error) throw error;
 
       setOk('Opgeslagen!');
-      // herladen
       const { data: fresh } = await supabase.from('users').select('*').eq('id', session.user.id).single();
       setMe({
         ...fresh,
@@ -127,20 +140,18 @@ export default function Profile(){
     }
   }
 
-  /* ---------- Portfolio uploads ---------- */
-
   async function onUploadPortfolio(e){
     const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || !session?.user?.id) return;
     setUploading(true); setErr('');
     try {
       for (const file of files) {
-        const path = `${session.user.id}/${crypto.randomUUID()}-${file.name}`;
+        const path = `${session.user.id}/${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}-${file.name}`;
         const { error } = await supabase.storage.from('portfolio').upload(path, file);
         if (error) throw error;
       }
-      await loadPortfolio();
-      e.target.value = ''; // reset input
+      await loadPortfolio(session.user.id);
+      e.target.value = '';
     } catch (e2) {
       setErr(e2.message ?? String(e2));
     } finally {
@@ -161,7 +172,9 @@ export default function Profile(){
     }
   }
 
-  /* ---------- UI ---------- */
+  // ---- Render (geen hooks hier!) ----
+  if (notReady) return <div style={{padding:20}}>Laden…</div>;
+  if (isNotCaterer) return <div style={{padding:20}}>Deze pagina is alleen voor cateraars.</div>;
 
   return (
     <div style={{maxWidth:900, margin:'40px auto', fontFamily:'system-ui'}}>
@@ -187,18 +200,15 @@ export default function Profile(){
 
         {/* Basisvelden */}
         <label>Bedrijfsnaam
-          <input name="company_name" placeholder="Bijv. Taste & Co"
-                 defaultValue={me.company_name} />
+          <input name="company_name" placeholder="Bijv. Taste & Co" defaultValue={me.company_name} />
         </label>
 
         <label>Beschrijving
-          <textarea name="bio" placeholder="Vertel iets over je bedrijf / jezelf…" rows={5}
-                    defaultValue={me.bio} />
+          <textarea name="bio" placeholder="Vertel iets over je bedrijf / jezelf…" rows={5} defaultValue={me.bio} />
         </label>
 
         <label>Specialisaties (komma-gescheiden)
-          <input name="specialties" placeholder="bijv. BBQ, halal, vegan"
-                 defaultValue={(me.specialties || []).join(', ')} />
+          <input name="specialties" placeholder="bijv. BBQ, halal, vegan" defaultValue={(me.specialties || []).join(', ')} />
         </label>
 
         <div style={{display:'grid', gap:12, gridTemplateColumns:'1fr 1fr'}}>
@@ -213,12 +223,10 @@ export default function Profile(){
         {/* Prijsvelden */}
         <div style={{display:'grid', gap:12, gridTemplateColumns:'1fr 1fr'}}>
           <label>Prijs vanaf (€)
-            <input name="min_price" type="number" min="0" step="1" placeholder="Bijv. 250"
-                   defaultValue={me.min_price} />
+            <input name="min_price" type="number" min="0" step="1" placeholder="Bijv. 250" defaultValue={me.min_price} />
           </label>
           <label>Prijs toelichting
-            <input name="price_note" placeholder="Bijv. excl. reiskosten"
-                   defaultValue={me.price_note} />
+            <input name="price_note" placeholder="Bijv. excl. reiskosten" defaultValue={me.price_note} />
           </label>
         </div>
 
@@ -230,15 +238,15 @@ export default function Profile(){
       </form>
 
       {/* Badges specialties */}
-      {me.specialties?.length ? (
+      {Array.isArray(me.specialties) && me.specialties.length > 0 && (
         <div style={{marginTop:16, display:'flex', gap:8, flexWrap:'wrap'}}>
           {me.specialties.map((s, i) => (
             <span key={i} style={{border:'1px solid #ddd', borderRadius:999, padding:'4px 10px', fontSize:12}}>{s}</span>
           ))}
         </div>
-      ) : null}
+      )}
 
-      {/* ---------- Portfolio sectie ---------- */}
+      {/* Portfolio sectie */}
       <hr style={{margin:'28px 0'}} />
       <h2>Portfolio</h2>
       <p style={{color:'#555', marginTop:4}}>Upload foto’s van eerdere opdrachten. (Publiek zichtbaar op je profiel.)</p>
@@ -248,7 +256,6 @@ export default function Profile(){
         {uploading && <span style={{marginLeft:8}}>Uploaden…</span>}
       </div>
 
-      {/* Grid */}
       {portfolio.length === 0 ? (
         <div style={{color:'#666'}}>Nog geen portfolio-items.</div>
       ) : (
