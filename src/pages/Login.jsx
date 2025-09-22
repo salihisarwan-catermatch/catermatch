@@ -1,8 +1,15 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { usePageMeta } from '../usePageMeta';
 
 export default function Login(){
+  usePageMeta({
+    title: 'Inloggen — Catermatch',
+    robots: 'noindex, nofollow',
+    canonical: 'https://catermatch.nl/login'
+  });
+
   const [email,setEmail] = useState('');
   const [password,setPassword] = useState('');
   const [busy,setBusy] = useState(false);
@@ -26,9 +33,9 @@ export default function Login(){
         return;
       }
       nav('/');
-    } catch (e) {
-      console.error(e);
-      setErr(String(e));
+    } catch (e2) {
+      console.error(e2);
+      setErr(String(e2));
     } finally {
       setBusy(false);
     }

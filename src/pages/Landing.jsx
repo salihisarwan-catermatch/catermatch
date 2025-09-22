@@ -1,7 +1,15 @@
 // src/pages/Landing.jsx
 import { Link } from 'react-router-dom';
+import { usePageMeta } from '../usePageMeta';
 
 export default function Landing(){
+  usePageMeta({
+    title: 'Catermatch — Vind snel de juiste cateraar',
+    description:
+      'Owners plaatsen een event, cateraars bieden en je boekt direct. Chat, profielen en bestanden — alles op één plek.',
+    canonical: 'https://catermatch.nl/'
+  });
+
   return (
     <div style={{fontFamily:'system-ui', color:'#111'}}>
       {/* Topbar (publiek) */}
