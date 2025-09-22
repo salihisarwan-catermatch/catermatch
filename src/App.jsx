@@ -15,8 +15,9 @@ import MyChats from './pages/MyChats.jsx';
 import ChatThread from './pages/ChatThread.jsx';
 import Profile from './pages/Profile.jsx';
 import PublicProfile from './pages/PublicProfile.jsx';
+import Landing from './pages/Landing.jsx';
 
-// Layout met menubalk
+// Layout met menubalk (authed)
 import Layout from './Layout.jsx';
 
 function useSession(){
@@ -65,14 +66,35 @@ function RequireAuth({ children }) {
   );
 }
 
+/** Publieke Home: niet ingelogd → Landing; ingelogd → Dashboard */
+function Home(){
+  const { session, ready } = useSession();
+  const [profile, setProfile] = useState(null);
+
+  useEffect(() => {
+    if (!session) return;
+    supabase.from('users').select('*').eq('id', session.user.id).single()
+      .then(({ data }) => setProfile(data));
+  }, [session]);
+
+  if (!ready) return <div style={{padding:20}}>Laden…</div>;
+  if (!session) {
+    // Publieke landing zonder Layout
+    return <Landing />;
+  }
+  // Ingelogd: dashboard binnen Layout
+  return (
+    <Layout profile={profile}>
+      <Dashboard profile={profile} />
+    </Layout>
+  );
+}
+
 export default function App(){
   return (
     <Routes>
-      {/* Home / Dashboard */}
-      <Route
-        path="/"
-        element={<RequireAuth>{(profile) => <Dashboard profile={profile} />}</RequireAuth>}
-      />
+      {/* Publieke of ingelogde home */}
+      <Route path="/" element={<Home />} />
 
       {/* Auth */}
       <Route path="/signup" element={<SignUp />} />
