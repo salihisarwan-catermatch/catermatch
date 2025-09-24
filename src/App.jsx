@@ -16,6 +16,7 @@ import ChatThread from './pages/ChatThread.jsx';
 import Profile from './pages/Profile.jsx';
 import PublicProfile from './pages/PublicProfile.jsx';
 import Landing from './pages/Landing.jsx';
+import OwnerProfile from './pages/OwnerProfile.jsx'; // ⬅️ NIEUW
 
 // Layout met menubalk (authed)
 import Layout from './Layout.jsx';
@@ -104,6 +105,8 @@ export default function App(){
       <Route path="/events/new" element={<RequireAuth>{() => <NewEvent />}</RequireAuth>} />
       <Route path="/events/mine" element={<RequireAuth>{() => <MyEvents />}</RequireAuth>} />
       <Route path="/events/:eventId/bids" element={<RequireAuth>{() => <EventBids />}</RequireAuth>} />
+      {/* ⬇️ NIEUW: Owner-profiel (privé) */}
+      <Route path="/owner/profile" element={<RequireAuth>{() => <OwnerProfile />}</RequireAuth>} />
 
       {/* Caterer-routes */}
       <Route path="/events/open" element={<RequireAuth>{() => <OpenEvents />}</RequireAuth>} />

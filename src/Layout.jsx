@@ -17,13 +17,15 @@ export default function Layout({ children, profile }){
         padding:'10px 20px',
         display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12
       }}>
-        <div style={{display:'flex', gap:16, flexWrap:'wrap'}}>
+        <div style={{display:'flex', gap:16, flexWrap:'wrap', alignItems:'center'}}>
           <Link to="/" style={{color:'#fff', textDecoration:'none'}}>Dashboard</Link>
 
           {profile?.role === 'owner' && (
             <>
               <Link to="/events/new" style={{color:'#fff', textDecoration:'none'}}>Nieuw event</Link>
               <Link to="/events/mine" style={{color:'#fff', textDecoration:'none'}}>Mijn events</Link>
+              {/* ⬇️ NIEUW: owner-profiel */}
+              <Link to="/owner/profile" style={{color:'#fff', textDecoration:'none'}}>Mijn profiel</Link>
             </>
           )}
 
@@ -31,6 +33,7 @@ export default function Layout({ children, profile }){
             <>
               <Link to="/events/open" style={{color:'#fff', textDecoration:'none'}}>Open events</Link>
               <Link to="/bids/mine" style={{color:'#fff', textDecoration:'none'}}>Mijn biedingen</Link>
+              {/* Bestaand: cateraar-profiel */}
               <Link to="/profile" style={{color:'#fff', textDecoration:'none'}}>Mijn profiel</Link>
             </>
           )}
