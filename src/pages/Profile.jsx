@@ -3,20 +3,26 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../supabase';
 
 export default function Profile(){
-  // ---- Hooks (NOOIT conditioneel) ----
+  // ---- Auth / user ----
   const [session, setSession] = useState(null);
   const [me, setMe] = useState(null);
 
+  // ---- Save state ----
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
 
-  // Portfolio
+  // ---- Portfolio ----
   const [portfolio, setPortfolio] = useState([]);   // [{name, url}]
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState('');
 
-  // 1) Session ophalen
+  // ---- Reviews (ontvangen) ----
+  const [reviews, setReviews] = useState([]);       // [{id,rating,comment,created_at,owner_id}]
+  const [ownersMap, setOwnersMap] = useState({});   // {owner_id: display_name}
+  const [loadingReviews, setLoadingReviews] = useState(true);
+
+  // 1) Session
   useEffect(() => {
     let alive = true;
     supabase.auth.getSession().then(({ data }) => {
@@ -26,7 +32,7 @@ export default function Profile(){
     return () => { alive = false; };
   }, []);
 
-  // 2) User-profiel ophalen zodra we session hebben
+  // 2) Mijn users-profiel
   useEffect(() => {
     let alive = true;
     async function run(){
@@ -51,15 +57,15 @@ export default function Profile(){
       });
     }
     run();
-    return () => { alive = false; };
+    return () => { /* no-op */ };
   }, [session]);
 
-  // 3) Portfolio laden (afzonderlijk)
+  // 3) Portfolio
   const loadPortfolio = useCallback(async (userId) => {
     if (!userId) return;
     const prefix = `${userId}/`;
     const { data, error } = await supabase.storage.from('portfolio').list(prefix, { limit: 100, offset: 0 });
-    if (error) { console.error(error); return; }
+    if (error) { console.error(error); setPortfolio([]); return; }
     const items = data || [];
     const urls = await Promise.all(items.map(async (it) => {
       const fullName = `${prefix}${it.name}`;
@@ -73,13 +79,51 @@ export default function Profile(){
     if (session?.user?.id) loadPortfolio(session.user.id);
   }, [session?.user?.id, loadPortfolio]);
 
-  // ---- Afgeleide flags (geen hooks binnen conditionele paden) ----
-  const notReady = !session || !me;
-  const isNotCaterer = useMemo(() => {
-    return me && me.role !== 'caterer';
-  }, [me]);
+  // 4) Ontvangen reviews (voor cateraar)
+  useEffect(() => {
+    let alive = true;
+    async function load(){
+      if (!session?.user?.id) return;
+      setLoadingReviews(true);
 
-  // ---- Helpers (GEEN hooks hier binnen) ----
+      // laatste 20 reviews ophalen
+      const { data: revs, error } = await supabase
+        .from('reviews')
+        .select('id, rating, comment, created_at, owner_id')
+        .eq('caterer_id', session.user.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (!alive) return;
+      if (error) { console.error(error); setReviews([]); setOwnersMap({}); setLoadingReviews(false); return; }
+      setReviews(revs || []);
+
+      // display_name van owners ophalen
+      const ownerIds = Array.from(new Set((revs || []).map(r => r.owner_id))).filter(Boolean);
+      if (ownerIds.length) {
+        const { data: owners, error: ownersErr } = await supabase
+          .from('users')
+          .select('id, display_name')
+          .in('id', ownerIds);
+        if (!alive) return;
+        if (ownersErr) { console.error(ownersErr); setOwnersMap({}); setLoadingReviews(false); return; }
+        const map = {};
+        (owners || []).forEach(o => { map[o.id] = o.display_name || 'Owner'; });
+        setOwnersMap(map);
+      } else {
+        setOwnersMap({});
+      }
+
+      setLoadingReviews(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, [session?.user?.id]);
+
+  // ---- Afgeleide flags ----
+  const notReady = !session || !me;
+  const isNotCaterer = useMemo(() => me && me.role !== 'caterer', [me]);
+
+  // ---- Helpers ----
   async function uploadLogo(file){
     if (!file || !session) return null;
     const path = `${session.user.id}/${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}-${file.name}`;
@@ -172,7 +216,27 @@ export default function Profile(){
     }
   }
 
-  // ---- Render (geen hooks hier!) ----
+  // ---- Ratings helpers ----
+  const ratingStats = useMemo(() => {
+    if (!reviews || reviews.length === 0) return { count: 0, avg: null };
+    const sum = reviews.reduce((acc, r) => acc + Number(r.rating || 0), 0);
+    const avg = sum / reviews.length;
+    return { count: reviews.length, avg };
+  }, [reviews]);
+
+  function Stars({ value = 0, size = 18 }){
+    const full = Math.round(value);
+    const arr = [1,2,3,4,5];
+    return (
+      <span aria-label={`${value?.toFixed ? value.toFixed(1) : value}/5`} title={`${value?.toFixed ? value.toFixed(1) : value}/5`}>
+        {arr.map(n => (
+          <span key={n} style={{ color: n <= full ? '#f5a524' : '#ccc', fontSize: size, lineHeight: 1 }}>★</span>
+        ))}
+      </span>
+    );
+  }
+
+  // ---- Render ----
   if (notReady) return <div style={{padding:20}}>Laden…</div>;
   if (isNotCaterer) return <div style={{padding:20}}>Deze pagina is alleen voor cateraars.</div>;
 
@@ -246,7 +310,7 @@ export default function Profile(){
         </div>
       )}
 
-      {/* Portfolio sectie */}
+      {/* Portfolio */}
       <hr style={{margin:'28px 0'}} />
       <h2>Portfolio</h2>
       <p style={{color:'#555', marginTop:4}}>Upload foto’s van eerdere opdrachten. (Publiek zichtbaar op je profiel.)</p>
@@ -272,6 +336,50 @@ export default function Profile(){
                 >
                   {removing === item.name ? 'Verwijderen…' : 'Verwijderen'}
                 </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Ontvangen reviews */}
+      <hr style={{margin:'28px 0'}} />
+      <h2>Ontvangen reviews</h2>
+
+      {/* Samenvatting */}
+      {ratingStats.count > 0 ? (
+        <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:8}}>
+          <Stars value={ratingStats.avg} />
+          <span style={{color:'#333', fontWeight:600}}>
+            {ratingStats.avg.toFixed(1)}/5
+          </span>
+          <span style={{color:'#666'}}>({ratingStats.count} review{ratingStats.count>1?'s':''}, laatste 20)</span>
+        </div>
+      ) : (
+        <div style={{color:'#666', marginBottom:8}}>Nog geen reviews ontvangen.</div>
+      )}
+
+      {/* Lijst */}
+      {loadingReviews ? (
+        <div>Reviews laden…</div>
+      ) : reviews.length === 0 ? null : (
+        <div style={{display:'grid', gap:10}}>
+          {reviews.map(r => (
+            <div key={r.id} style={{border:'1px solid #eee', borderRadius:8, padding:10}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                  <Stars value={r.rating} />
+                  <b>{r.rating}/5</b>
+                </div>
+                <div style={{fontSize:12, color:'#666'}}>
+                  {new Date(r.created_at).toLocaleDateString('nl-NL')}
+                </div>
+              </div>
+              {r.comment && (
+                <div style={{marginTop:6, color:'#333', whiteSpace:'pre-wrap'}}>{r.comment}</div>
+              )}
+              <div style={{marginTop:6, fontSize:12, color:'#666'}}>
+                door {ownersMap[r.owner_id] || 'Owner'}
               </div>
             </div>
           ))}
