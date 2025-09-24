@@ -10,6 +10,9 @@ export default function PlaceBid(){
   const [profile, setProfile] = useState(null);
   const [event, setEvent] = useState(null);
 
+  // 👇 Nieuw: owner-profiel voor kaartje + link
+  const [owner, setOwner] = useState(null);
+
   const [amount, setAmount] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -28,9 +31,18 @@ export default function PlaceBid(){
   useEffect(() => {
     if (!eventId) return;
     supabase.from('events').select('*').eq('id', eventId).single()
-      .then(({ data, error }) => {
-        if (error) console.error(error);
+      .then(async ({ data, error }) => {
+        if (error) { console.error(error); return; }
         setEvent(data);
+        // Zodra event bekend is, laad owner-profiel
+        if (data?.owner_id) {
+          const { data: own, error: ownErr } = await supabase
+            .from('users')
+            .select('id, display_name, logo_url, city, website')
+            .eq('id', data.owner_id)
+            .single();
+          if (!ownErr) setOwner(own);
+        }
       });
   }, [eventId]);
 
@@ -96,16 +108,47 @@ export default function PlaceBid(){
     }
   }
 
+  // Kleine helper voor nette website-url
+  const websiteClean = owner?.website
+    ? (owner.website.startsWith('http') ? owner.website : `https://${owner.website}`)
+    : null;
+
   return (
     <div style={{maxWidth:560, margin:'40px auto', fontFamily:'system-ui'}}>
       <h1>Bied op: {event.title}</h1>
       <p style={{color:'#555', marginTop:4}}>
         {event.date ? new Date(event.date).toLocaleString() : 'Geen datum'} • {event.guests ?? '?'} gasten
       </p>
+
+      {/* 👇 Nieuw: owner-profielkaart + link */}
+      {owner && (
+        <div style={{marginTop:12, border:'1px solid #eee', borderRadius:8, padding:12, background:'#fafafa'}}>
+          <div style={{display:'flex', gap:12, alignItems:'center'}}>
+            <div style={{width:48, height:48, borderRadius:8, overflow:'hidden', background:'#f4f4f4', border:'1px solid #ddd'}}>
+              {owner.logo_url ? (
+                <img src={owner.logo_url} alt="" style={{width:'100%', height:'100%', objectFit:'cover'}} />
+              ) : null}
+            </div>
+            <div>
+              <div style={{fontWeight:600}}>{owner.display_name || 'Owner'}</div>
+              <div style={{fontSize:12, color:'#666'}}>
+                {owner.city ? <>Locatie: <b>{owner.city}</b></> : 'Locatie onbekend'}
+                {websiteClean ? <> • <a href={websiteClean} target="_blank" rel="noreferrer">Website</a></> : null}
+              </div>
+              <div style={{marginTop:6}}>
+                <Link to={`/owners/${owner.id}`}>Bekijk profiel van de owner</Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={submitBid} style={{display:'grid', gap:12, marginTop:16}}>
         <label>Bedrag (totaal)
-          <input type="number" min="1" step="0.01" placeholder="Bijv. 250.00"
-                 value={amount} onChange={e=>setAmount(e.target.value)} required />
+          <input
+            type="number" min="1" step="0.01" placeholder="Bijv. 250.00"
+            value={amount} onChange={e=>setAmount(e.target.value)} required
+          />
         </label>
         <label>Bericht (optioneel)
           <textarea placeholder="Korte toelichting…" value={message} onChange={e=>setMessage(e.target.value)} />
@@ -113,6 +156,7 @@ export default function PlaceBid(){
         <button disabled={busy}>{busy ? 'Versturen…' : 'Bod plaatsen'}</button>
         {err && <div style={{color:'crimson'}}>{err}</div>}
       </form>
+
       <div style={{marginTop:12}}>
         <Link to="/events/open">← Terug</Link>
       </div>
