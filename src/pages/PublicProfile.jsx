@@ -1,17 +1,25 @@
 // src/pages/PublicProfile.jsx
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 
 export default function PublicProfile(){
   const { userId } = useParams();
+
   const [profile, setProfile] = useState(null);
   const [err, setErr] = useState('');
+
+  // Portfolio
   const [portfolio, setPortfolio] = useState([]); // [{name, url}]
   const [loadingPf, setLoadingPf] = useState(true);
   const [loadingPort, setLoadingPort] = useState(true);
 
-  // Profiel laden
+  // Reviews
+  const [reviews, setReviews] = useState([]); // [{id,rating,comment,created_at,owner_id}]
+  const [ownersMap, setOwnersMap] = useState({}); // {owner_id: display_name}
+  const [loadingReviews, setLoadingReviews] = useState(true);
+
+  /* ---------------- Profile ---------------- */
   useEffect(() => {
     let alive = true;
     async function load(){
@@ -31,7 +39,7 @@ export default function PublicProfile(){
     return () => { alive = false; };
   }, [userId]);
 
-  // Portfolio laden (bucket: portfolio, map: {userId}/)
+  /* ---------------- Portfolio ---------------- */
   const loadPortfolio = useCallback(async (uid) => {
     if (!uid) return;
     setLoadingPort(true);
@@ -52,6 +60,73 @@ export default function PublicProfile(){
     if (userId) loadPortfolio(userId);
   }, [userId, loadPortfolio]);
 
+  /* ---------------- Reviews ---------------- */
+  useEffect(() => {
+    let alive = true;
+    async function loadReviews(){
+      if (!userId) return;
+      setLoadingReviews(true);
+
+      // 1) Recente reviews voor deze cateraar (laatste 10)
+      const { data: revs, error } = await supabase
+        .from('reviews')
+        .select('id, rating, comment, created_at, owner_id')
+        .eq('caterer_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (!alive) return;
+      if (error) { console.error(error); setReviews([]); setLoadingReviews(false); return; }
+      setReviews(revs || []);
+
+      // 2) Haal display_names van owners op
+      const ownerIds = Array.from(new Set((revs || []).map(r => r.owner_id))).filter(Boolean);
+      if (ownerIds.length) {
+        const { data: owners, error: ownersErr } = await supabase
+          .from('users')
+          .select('id, display_name')
+          .in('id', ownerIds);
+        if (!alive) return;
+        if (ownersErr) { console.error(ownersErr); setOwnersMap({}); setLoadingReviews(false); return; }
+        const map = {};
+        (owners || []).forEach(o => { map[o.id] = o.display_name || 'Owner'; });
+        setOwnersMap(map);
+      } else {
+        setOwnersMap({});
+      }
+
+      setLoadingReviews(false);
+    }
+    loadReviews();
+    return () => { alive = false; };
+  }, [userId]);
+
+  const ratingStats = useMemo(() => {
+    if (!reviews || reviews.length === 0) return { count: 0, avg: null };
+    const sum = reviews.reduce((acc, r) => acc + Number(r.rating || 0), 0);
+    const avg = sum / reviews.length;
+    return { count: reviews.length, avg };
+  }, [reviews]);
+
+  /* ---------------- Helpers ---------------- */
+  function euro(v){
+    if (v == null || Number.isNaN(Number(v))) return null;
+    try { return Number(v).toLocaleString('nl-NL', { style:'currency', currency:'EUR' }); }
+    catch { return `€ ${v}`; }
+  }
+
+  function Stars({ value = 0, size = 18 }){
+    const full = Math.round(value);
+    const arr = [1,2,3,4,5];
+    return (
+      <span aria-label={`${value?.toFixed ? value.toFixed(1) : value}/5`} title={`${value?.toFixed ? value.toFixed(1) : value}/5`}>
+        {arr.map(n => (
+          <span key={n} style={{ color: n <= full ? '#f5a524' : '#ccc', fontSize: size, lineHeight: 1 }}>★</span>
+        ))}
+      </span>
+    );
+  }
+
+  /* ---------------- Renders ---------------- */
   if (loadingPf && !err) return <div style={{padding:20}}>Profiel laden…</div>;
   if (err) return <div style={{padding:20, color:'crimson'}}>Kon profiel niet laden: {err}</div>;
   if (!profile) return <div style={{padding:20}}>Geen profiel gevonden.</div>;
@@ -59,12 +134,6 @@ export default function PublicProfile(){
   const isCaterer = profile.role === 'caterer';
   const title = profile.company_name || profile.display_name || 'Cateraar';
   const websiteClean = profile.website?.startsWith('http') ? profile.website : (profile.website ? `https://${profile.website}` : null);
-
-  function euro(v){
-    if (v == null || Number.isNaN(Number(v))) return null;
-    try { return Number(v).toLocaleString('nl-NL', { style:'currency', currency:'EUR' }); }
-    catch { return `€ ${v}`; }
-  }
 
   return (
     <div style={{maxWidth:900, margin:'40px auto', fontFamily:'system-ui'}}>
@@ -99,6 +168,20 @@ export default function PublicProfile(){
               {profile.price_note && (<div style={{color:'#555', marginTop:2}}>{profile.price_note}</div>)}
             </div>
           )}
+          {/* Gemiddelde rating */}
+          <div style={{marginTop:10}}>
+            {ratingStats.count > 0 ? (
+              <div style={{display:'flex', alignItems:'center', gap:8}}>
+                <Stars value={ratingStats.avg} />
+                <span style={{color:'#333', fontWeight:600}}>
+                  {ratingStats.avg.toFixed(1)}/5
+                </span>
+                <span style={{color:'#666'}}>({ratingStats.count} review{ratingStats.count>1?'s':''})</span>
+              </div>
+            ) : (
+              <div style={{color:'#666'}}>Nog geen reviews</div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -138,6 +221,38 @@ export default function PublicProfile(){
                  style={{border:'1px solid #eee', borderRadius:8, overflow:'hidden', display:'block'}}>
                 <img src={item.url} alt="" style={{width:'100%', height:130, objectFit:'cover', display:'block'}} />
               </a>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Reviews lijst */}
+      <div style={{marginTop:24}}>
+        <h3 style={{margin:'6px 0'}}>Reviews</h3>
+        {loadingReviews ? (
+          <div>Reviews laden…</div>
+        ) : reviews.length === 0 ? (
+          <div style={{color:'#666'}}>Nog geen reviews.</div>
+        ) : (
+          <div style={{display:'grid', gap:10}}>
+            {reviews.map((r) => (
+              <div key={r.id} style={{border:'1px solid #eee', borderRadius:8, padding:10}}>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                  <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                    <Stars value={r.rating} />
+                    <b>{r.rating}/5</b>
+                  </div>
+                  <div style={{fontSize:12, color:'#666'}}>
+                    {new Date(r.created_at).toLocaleDateString('nl-NL')}
+                  </div>
+                </div>
+                {r.comment && (
+                  <div style={{marginTop:6, color:'#333', whiteSpace:'pre-wrap'}}>{r.comment}</div>
+                )}
+                <div style={{marginTop:6, fontSize:12, color:'#666'}}>
+                  door {ownersMap[r.owner_id] || 'Owner'}
+                </div>
+              </div>
             ))}
           </div>
         )}
