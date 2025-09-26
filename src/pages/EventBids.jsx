@@ -21,13 +21,16 @@ export default function EventBids(){
   // UI state accept/reject
   const [busyId, setBusyId] = useState(null);
 
-  // Reviews
+  // Reviews (owner plaatst review na acceptatie)
   const [myReview, setMyReview] = useState(null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [savingReview, setSavingReview] = useState(false);
   const [reviewErr, setReviewErr] = useState('');
   const [reviewOk, setReviewOk] = useState('');
+
+  // ⭐ Nieuw: rating-badges – map per caterer-id: { avg, count }
+  const [ratingMap, setRatingMap] = useState({}); // { [caterer_id]: { avg, count } }
 
   useEffect(() => {
     supabase.auth.getSession().then(({data}) => setSession(data.session ?? null));
@@ -72,6 +75,36 @@ export default function EventBids(){
 
   const isOwner = useMemo(() => !!(event && session && event.owner_id === session.user.id), [event, session]);
   const acceptedBid = useMemo(() => (bids || []).find(b => b.status === 'accepted') || null, [bids]);
+
+  // ⭐ Nieuw: laad rating-statistieken voor alle cateraars in deze biedingenlijst
+  useEffect(() => {
+    let alive = true;
+    async function loadRatings(){
+      const ids = Array.from(new Set((bids || []).map(b => b.caterer_id))).filter(Boolean);
+      if (ids.length === 0) { setRatingMap({}); return; }
+      const { data, error } = await supabase
+        .from('reviews')
+        .select('caterer_id, rating')
+        .in('caterer_id', ids);
+      if (!alive) return;
+      if (error) { console.error(error); setRatingMap({}); return; }
+      const acc = {};
+      for (const r of (data || [])) {
+        const cid = r.caterer_id;
+        if (!acc[cid]) acc[cid] = { sum: 0, count: 0 };
+        acc[cid].sum += Number(r.rating || 0);
+        acc[cid].count += 1;
+      }
+      const map = {};
+      Object.entries(acc).forEach(([cid, v]) => {
+        map[cid] = { avg: v.count ? v.sum / v.count : null, count: v.count };
+      });
+      setRatingMap(map);
+    }
+    loadRatings();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bids]);
 
   // Review laden (voor geaccepteerde cateraar)
   useEffect(() => {
@@ -144,7 +177,7 @@ export default function EventBids(){
         chatId = created.id;
       }
 
-      // 5) E-mail naar de cateraar (behoud uit jouw vorige versie)
+      // 5) E-mail naar de cateraar
       const { data: catererProfile } = await supabase
         .from('users').select('email')
         .eq('id', bid.caterer_id).single();
@@ -267,49 +300,64 @@ export default function EventBids(){
       {/* Lijst biedingen */}
       <div style={{display:'grid', gap:16, marginTop:16}}>
         {bids.length === 0 && <p>Nog geen biedingen.</p>}
-        {bids.map(b => (
-          <div key={b.id} style={{border:'1px solid #ddd', borderRadius:8, padding:12}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap'}}>
-              <div style={{display:'flex', gap:10, alignItems:'center'}}>
-                <div style={{ width: 40, height: 40, borderRadius: 6, overflow: 'hidden', background: '#f4f4f4', border: '1px solid #eee' }}>
-                  {b.caterer?.logo_url ? (
-                    <img alt="" src={b.caterer.logo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : null}
+        {bids.map(b => {
+          const stats = ratingMap[b.caterer_id];
+          return (
+            <div key={b.id} style={{border:'1px solid #ddd', borderRadius:8, padding:12}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap'}}>
+                <div style={{display:'flex', gap:10, alignItems:'center'}}>
+                  <div style={{ width: 40, height: 40, borderRadius: 6, overflow: 'hidden', background: '#f4f4f4', border: '1px solid #eee' }}>
+                    {b.caterer?.logo_url ? (
+                      <img alt="" src={b.caterer.logo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : null}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {b.caterer?.company_name || b.caterer?.display_name || 'Cateraar'}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#666' }}>
+                      Bod: <b>€ {Number(b.amount || 0).toLocaleString('nl-NL')}</b>
+                      {b.status ? <> • Status: <b>{b.status}</b></> : null}
+                    </div>
+
+                    {/* ⭐ Mini rating badge */}
+                    <div style={{ marginTop: 4, fontSize: 12, color: '#555', display:'flex', alignItems:'center', gap:6 }}>
+                      {stats?.count ? (
+                        <>
+                          <Stars value={stats.avg} size={14} />
+                          <span><b>{stats.avg.toFixed(1)}</b> ({stats.count})</span>
+                        </>
+                      ) : (
+                        <span style={{ color:'#777' }}>Nog geen reviews</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontWeight: 600 }}>
-                    {b.caterer?.company_name || b.caterer?.display_name || 'Cateraar'}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#666' }}>
-                    Bod: <b>€ {Number(b.amount || 0).toLocaleString('nl-NL')}</b>
-                    {b.status ? <> • Status: <b>{b.status}</b></> : null}
-                  </div>
+
+                <div style={{display:'flex', gap:8}}>
+                  <Link to={`/caterers/${b.caterer_id}`}>Bekijk profiel</Link>
                 </div>
               </div>
 
-              <div style={{display:'flex', gap:8}}>
-                <Link to={`/caterers/${b.caterer_id}`}>Bekijk profiel</Link>
+              {b.message && <p style={{marginTop:6}}>{b.message}</p>}
+
+              <div style={{display:'flex', gap:8, marginTop:8}}>
+                <button
+                  disabled={busyId === b.id || event.status === 'booked' || b.status !== 'sent'}
+                  onClick={() => acceptBid(b)}
+                >
+                  {busyId === b.id ? 'Bezig…' : 'Accepteren'}
+                </button>
+                <button
+                  disabled={busyId === b.id || b.status !== 'sent'}
+                  onClick={() => rejectBid(b)}
+                >
+                  Weigeren
+                </button>
               </div>
             </div>
-
-            {b.message && <p style={{marginTop:6}}>{b.message}</p>}
-
-            <div style={{display:'flex', gap:8, marginTop:8}}>
-              <button
-                disabled={busyId === b.id || event.status === 'booked' || b.status !== 'sent'}
-                onClick={() => acceptBid(b)}
-              >
-                {busyId === b.id ? 'Bezig…' : 'Accepteren'}
-              </button>
-              <button
-                disabled={busyId === b.id || b.status !== 'sent'}
-                onClick={() => rejectBid(b)}
-              >
-                Weigeren
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Review-sectie (alleen owner + accepted bid) */}
@@ -357,7 +405,20 @@ export default function EventBids(){
   );
 }
 
-/* Kleine sterpicker (zonder extra packages) */
+/* Kleine ster-weergave (voor badges) */
+function Stars({ value = 0, size = 18 }){
+  const full = Math.round(value || 0);
+  const arr = [1,2,3,4,5];
+  return (
+    <span aria-label={`${value?.toFixed ? value.toFixed(1) : value}/5`} title={`${value?.toFixed ? value.toFixed(1) : value}/5`}>
+      {arr.map(n => (
+        <span key={n} style={{ color: n <= full ? '#f5a524' : '#ccc', fontSize: size, lineHeight: 1 }}>★</span>
+      ))}
+    </span>
+  );
+}
+
+/* Sterpicker voor het reviewformulier (ongewijzigd) */
 function StarPicker({ value = 5, onChange }) {
   const stars = [1,2,3,4,5];
   return (
