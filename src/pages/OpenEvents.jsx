@@ -13,11 +13,14 @@ export default function OpenEvents(){
   const [err, setErr] = useState('');
 
   // 🔎 Filters
+  const [q, setQ] = useState('');             // ⬅️ NIEUW (zoektekst)
   const [city, setCity] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [minGuests, setMinGuests] = useState('');
   const [maxGuests, setMaxGuests] = useState('');
+  const [minBudget, setMinBudget] = useState(''); // ⬅️ NIEUW
+  const [maxBudget, setMaxBudget] = useState(''); // ⬅️ NIEUW
   const [sort, setSort] = useState('soonest'); // 'soonest' | 'newest' | 'oldest'
 
   useEffect(() => {
@@ -41,16 +44,26 @@ export default function OpenEvents(){
 
       let query = supabase
         .from('events')
-        .select('id, title, description, date, guests, status, owner_id, created_at, city')
+        .select('id, title, description, date, guests, status, owner_id, created_at, city, budget')
         .eq('status', 'open');
+
+      // zoektekst in titel/beschrijving
+      const qTrim = q.trim();
+      if (qTrim) {
+        query = query.or(`ilike(title,%${qTrim}%),ilike(description,%${qTrim}%)`);
+      }
 
       // filters
       const cityTrim = city.trim();
       if (cityTrim)  query = query.ilike('city', `%${cityTrim}%`);
       if (dateFrom)  query = query.gte('date', dateFrom);
       if (dateTo)    query = query.lte('date', dateTo);
+
       if (minGuests !== '' && !Number.isNaN(Number(minGuests))) query = query.gte('guests', Number(minGuests));
       if (maxGuests !== '' && !Number.isNaN(Number(maxGuests))) query = query.lte('guests', Number(maxGuests));
+
+      if (minBudget !== '' && !Number.isNaN(Number(minBudget))) query = query.gte('budget', Number(minBudget));
+      if (maxBudget !== '' && !Number.isNaN(Number(maxBudget))) query = query.lte('budget', Number(maxBudget));
 
       // sortering
       if (sort === 'soonest') {
@@ -70,7 +83,7 @@ export default function OpenEvents(){
     } finally {
       setLoading(false);
     }
-  }, [city, dateFrom, dateTo, minGuests, maxGuests, sort]);
+  }, [q, city, dateFrom, dateTo, minGuests, maxGuests, minBudget, maxBudget, sort]);
 
   // initial load
   useEffect(() => {
@@ -79,11 +92,14 @@ export default function OpenEvents(){
 
   // Helpers
   function resetFilters(){
+    setQ('');
     setCity('');
     setDateFrom('');
     setDateTo('');
     setMinGuests('');
     setMaxGuests('');
+    setMinBudget('');
+    setMaxBudget('');
     setSort('soonest');
   }
 
@@ -99,6 +115,9 @@ export default function OpenEvents(){
         onSubmit={(e)=>{ e.preventDefault(); load(); }}
         style={{display:'grid', gap:10, gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', alignItems:'end', marginTop:12}}
       >
+        <label>Zoektekst
+          <input type="text" placeholder="Titel of beschrijving…" value={q} onChange={e=>setQ(e.target.value)} />
+        </label>
         <label>Plaats / Stad
           <input type="text" placeholder="Bijv. Amsterdam" value={city} onChange={e=>setCity(e.target.value)} />
         </label>
@@ -113,6 +132,12 @@ export default function OpenEvents(){
         </label>
         <label>Max. gasten
           <input type="number" min="1" step="1" value={maxGuests} onChange={e=>setMaxGuests(e.target.value)} placeholder="bijv. 200" />
+        </label>
+        <label>Min. budget (€)
+          <input type="number" min="0" step="1" value={minBudget} onChange={e=>setMinBudget(e.target.value)} placeholder="bijv. 500" />
+        </label>
+        <label>Max. budget (€)
+          <input type="number" min="0" step="1" value={maxBudget} onChange={e=>setMaxBudget(e.target.value)} placeholder="bijv. 2500" />
         </label>
         <label>Sorteren op
           <select value={sort} onChange={e=>setSort(e.target.value)}>
@@ -129,11 +154,14 @@ export default function OpenEvents(){
 
       {/* Actieve filter chips */}
       <div style={{display:'flex', gap:8, flexWrap:'wrap', marginTop:10}}>
+        {q.trim() && <Chip label={`Zoek: ${q.trim()}`} onClear={()=>setQ('')} />}
         {city.trim() && <Chip label={`Plaats: ${city.trim()}`} onClear={()=>setCity('')} />}
         {dateFrom && <Chip label={`Vanaf ${new Date(dateFrom).toLocaleDateString('nl-NL')}`} onClear={()=>setDateFrom('')} />}
         {dateTo &&   <Chip label={`T/m ${new Date(dateTo).toLocaleDateString('nl-NL')}`} onClear={()=>setDateTo('')} />}
         {minGuests && <Chip label={`≥ ${minGuests} gasten`} onClear={()=>setMinGuests('')} />}
         {maxGuests && <Chip label={`≤ ${maxGuests} gasten`} onClear={()=>setMaxGuests('')} />}
+        {minBudget && <Chip label={`≥ €${minBudget}`} onClear={()=>setMinBudget('')} />}
+        {maxBudget && <Chip label={`≤ €${maxBudget}`} onClear={()=>setMaxBudget('')} />}
         {sort !== 'soonest' && <Chip label={`Sort: ${sort}`} onClear={()=>setSort('soonest')} />}
       </div>
 
@@ -157,6 +185,7 @@ export default function OpenEvents(){
                 {ev.date ? <>Datum: <b>{new Date(ev.date).toLocaleDateString('nl-NL')}</b> • </> : null}
                 Gasten: <b>{ev.guests ?? '?'}</b>
                 {ev.city ? <> • Plaats: <b>{ev.city}</b></> : null}
+                {typeof ev.budget === 'number' ? <> • Budget: <b>€ {ev.budget.toLocaleString('nl-NL')}</b></> : null}
               </div>
               {ev.description && (
                 <p style={{marginTop:8, color:'#333'}}>

@@ -12,7 +12,8 @@ export default function NewEvent(){
   const [description, setDescription] = useState('');
   const [date, setDate] = useState('');
   const [guests, setGuests] = useState('');
-  const [city, setCity] = useState('');          // ⬅️ NIEUW
+  const [city, setCity] = useState('');
+  const [budget, setBudget] = useState('');     // ⬅️ NIEUW
   const [address, setAddress] = useState('');
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -28,7 +29,6 @@ export default function NewEvent(){
       .then(({data}) => setProfile(data));
   }, [session]);
 
-  // Als de owner al een stad in zijn gebruikersprofiel heeft, prefill het veld
   useEffect(() => {
     if (profile?.city && !city) setCity(profile.city);
   }, [profile, city]);
@@ -61,7 +61,8 @@ export default function NewEvent(){
         description: description?.trim() || null,
         date: date ? new Date(date).toISOString() : null,
         guests: guests ? Number(guests) : null,
-        city: city?.trim() || null,                // ⬅️ NIEUW
+        city: city?.trim() || null,
+        budget: budget ? Number(budget) : null,     // ⬅️ NIEUW
         location: address ? { address } : null,
         photos: photoUrls,
         status: 'open'
@@ -86,7 +87,8 @@ export default function NewEvent(){
           <input type="datetime-local" value={date} onChange={e=>setDate(e.target.value)} />
         </label>
         <input type="number" placeholder="Aantal gasten" value={guests} onChange={e=>setGuests(e.target.value)} />
-        <input placeholder="Plaats / Stad" value={city} onChange={e=>setCity(e.target.value)} /> {/* ⬅️ NIEUW */}
+        <input placeholder="Plaats / Stad" value={city} onChange={e=>setCity(e.target.value)} />
+        <input type="number" min="0" step="1" placeholder="Budget (indicatief, €)" value={budget} onChange={e=>setBudget(e.target.value)} /> {/* ⬅️ NIEUW */}
         <input placeholder="Adres (optioneel)" value={address} onChange={e=>setAddress(e.target.value)} />
         <label>Foto's (optioneel)
           <input type="file" multiple accept="image/*" onChange={e=>setFiles([...e.target.files])} />
