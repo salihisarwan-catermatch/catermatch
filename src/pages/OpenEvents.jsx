@@ -12,7 +12,8 @@ export default function OpenEvents(){
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
 
-  // 🔎 Filters (stap 1)
+  // 🔎 Filters
+  const [city, setCity] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [minGuests, setMinGuests] = useState('');
@@ -38,15 +39,16 @@ export default function OpenEvents(){
     try {
       setLoading(true); setErr('');
 
-      // basisquery
       let query = supabase
         .from('events')
-        .select('id, title, description, date, guests, status, owner_id, created_at')
+        .select('id, title, description, date, guests, status, owner_id, created_at, city')
         .eq('status', 'open');
 
       // filters
-      if (dateFrom) query = query.gte('date', dateFrom);
-      if (dateTo)   query = query.lte('date', dateTo);
+      const cityTrim = city.trim();
+      if (cityTrim)  query = query.ilike('city', `%${cityTrim}%`);
+      if (dateFrom)  query = query.gte('date', dateFrom);
+      if (dateTo)    query = query.lte('date', dateTo);
       if (minGuests !== '' && !Number.isNaN(Number(minGuests))) query = query.gte('guests', Number(minGuests));
       if (maxGuests !== '' && !Number.isNaN(Number(maxGuests))) query = query.lte('guests', Number(maxGuests));
 
@@ -68,7 +70,7 @@ export default function OpenEvents(){
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, minGuests, maxGuests, sort]);
+  }, [city, dateFrom, dateTo, minGuests, maxGuests, sort]);
 
   // initial load
   useEffect(() => {
@@ -77,6 +79,7 @@ export default function OpenEvents(){
 
   // Helpers
   function resetFilters(){
+    setCity('');
     setDateFrom('');
     setDateTo('');
     setMinGuests('');
@@ -96,6 +99,9 @@ export default function OpenEvents(){
         onSubmit={(e)=>{ e.preventDefault(); load(); }}
         style={{display:'grid', gap:10, gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', alignItems:'end', marginTop:12}}
       >
+        <label>Plaats / Stad
+          <input type="text" placeholder="Bijv. Amsterdam" value={city} onChange={e=>setCity(e.target.value)} />
+        </label>
         <label>Datum vanaf
           <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} />
         </label>
@@ -123,6 +129,7 @@ export default function OpenEvents(){
 
       {/* Actieve filter chips */}
       <div style={{display:'flex', gap:8, flexWrap:'wrap', marginTop:10}}>
+        {city.trim() && <Chip label={`Plaats: ${city.trim()}`} onClear={()=>setCity('')} />}
         {dateFrom && <Chip label={`Vanaf ${new Date(dateFrom).toLocaleDateString('nl-NL')}`} onClear={()=>setDateFrom('')} />}
         {dateTo &&   <Chip label={`T/m ${new Date(dateTo).toLocaleDateString('nl-NL')}`} onClear={()=>setDateTo('')} />}
         {minGuests && <Chip label={`≥ ${minGuests} gasten`} onClear={()=>setMinGuests('')} />}
@@ -139,7 +146,7 @@ export default function OpenEvents(){
       ) : (
         <div style={{display:'grid', gap:12, marginTop:16}}>
           {events.map(ev => (
-            <div key={ev.id} style={{border:'1px solid #ddd', borderRadius:8, padding:12}}>
+            <div key={ev.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', gap:12, flexWrap:'wrap'}}>
                 <h3 style={{margin:'4px 0'}}>{ev.title || 'Event'}</h3>
                 <div style={{fontSize:12, color:'#666'}}>
@@ -149,6 +156,7 @@ export default function OpenEvents(){
               <div style={{fontSize:14, color:'#555'}}>
                 {ev.date ? <>Datum: <b>{new Date(ev.date).toLocaleDateString('nl-NL')}</b> • </> : null}
                 Gasten: <b>{ev.guests ?? '?'}</b>
+                {ev.city ? <> • Plaats: <b>{ev.city}</b></> : null}
               </div>
               {ev.description && (
                 <p style={{marginTop:8, color:'#333'}}>
@@ -157,7 +165,7 @@ export default function OpenEvents(){
               )}
               <div style={{display:'flex', gap:10, marginTop:8}}>
                 <Link to={`/events/${ev.id}/bid`}>Bied op dit event</Link>
-                {/* Optioneel later: <Link to={`/owners/${ev.owner_id}`}>Bekijk owner-profiel</Link> */}
+                {/* Optioneel: <Link to={`/owners/${ev.owner_id}`}>Bekijk owner-profiel</Link> */}
               </div>
             </div>
           ))}
