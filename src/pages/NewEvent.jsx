@@ -1,3 +1,4 @@
+// src/pages/NewEvent.jsx
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +12,7 @@ export default function NewEvent(){
   const [description, setDescription] = useState('');
   const [date, setDate] = useState('');
   const [guests, setGuests] = useState('');
+  const [city, setCity] = useState('');          // ⬅️ NIEUW
   const [address, setAddress] = useState('');
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -26,6 +28,11 @@ export default function NewEvent(){
       .then(({data}) => setProfile(data));
   }, [session]);
 
+  // Als de owner al een stad in zijn gebruikersprofiel heeft, prefill het veld
+  useEffect(() => {
+    if (profile?.city && !city) setCity(profile.city);
+  }, [profile, city]);
+
   if (!session) return <div style={{padding:20}}>Laden…</div>;
   if (profile && profile.role !== 'owner') {
     return <div style={{padding:20}}>Alleen owners kunnen events aanmaken.</div>;
@@ -34,7 +41,7 @@ export default function NewEvent(){
   async function uploadPhotos(){
     const urls = [];
     for (const file of files) {
-      const filename = `${crypto.randomUUID()}-${file.name}`;
+      const filename = `${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}-${file.name}`;
       const { error: upErr } = await supabase.storage.from('events').upload(filename, file);
       if (upErr) throw upErr;
       const { data } = supabase.storage.from('events').getPublicUrl(filename);
@@ -50,10 +57,11 @@ export default function NewEvent(){
       const photoUrls = files.length ? await uploadPhotos() : [];
       const payload = {
         owner_id: session.user.id,
-        title,
-        description,
+        title: title?.trim() || null,
+        description: description?.trim() || null,
         date: date ? new Date(date).toISOString() : null,
         guests: guests ? Number(guests) : null,
+        city: city?.trim() || null,                // ⬅️ NIEUW
         location: address ? { address } : null,
         photos: photoUrls,
         status: 'open'
@@ -78,6 +86,7 @@ export default function NewEvent(){
           <input type="datetime-local" value={date} onChange={e=>setDate(e.target.value)} />
         </label>
         <input type="number" placeholder="Aantal gasten" value={guests} onChange={e=>setGuests(e.target.value)} />
+        <input placeholder="Plaats / Stad" value={city} onChange={e=>setCity(e.target.value)} /> {/* ⬅️ NIEUW */}
         <input placeholder="Adres (optioneel)" value={address} onChange={e=>setAddress(e.target.value)} />
         <label>Foto's (optioneel)
           <input type="file" multiple accept="image/*" onChange={e=>setFiles([...e.target.files])} />
