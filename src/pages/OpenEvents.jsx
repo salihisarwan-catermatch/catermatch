@@ -13,14 +13,14 @@ export default function OpenEvents(){
   const [err, setErr] = useState('');
 
   // 🔎 Filters
-  const [q, setQ] = useState('');             // ⬅️ NIEUW (zoektekst)
+  const [q, setQ] = useState('');
   const [city, setCity] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [minGuests, setMinGuests] = useState('');
   const [maxGuests, setMaxGuests] = useState('');
-  const [minBudget, setMinBudget] = useState(''); // ⬅️ NIEUW
-  const [maxBudget, setMaxBudget] = useState(''); // ⬅️ NIEUW
+  const [minBudget, setMinBudget] = useState('');
+  const [maxBudget, setMaxBudget] = useState('');
   const [sort, setSort] = useState('soonest'); // 'soonest' | 'newest' | 'oldest'
 
   useEffect(() => {
@@ -44,24 +44,20 @@ export default function OpenEvents(){
 
       let query = supabase
         .from('events')
-        .select('id, title, description, date, guests, status, owner_id, created_at, city, budget')
+        .select('id, title, description, date, guests, status, owner_id, created_at, city, budget, photos') // ⬅️ photos toegevoegd
         .eq('status', 'open');
 
-      // zoektekst in titel/beschrijving
+      // zoektekst (titel/beschrijving)
       const qTrim = q.trim();
-      if (qTrim) {
-        query = query.or(`ilike(title,%${qTrim}%),ilike(description,%${qTrim}%)`);
-      }
+      if (qTrim) query = query.or(`ilike(title,%${qTrim}%),ilike(description,%${qTrim}%)`);
 
       // filters
       const cityTrim = city.trim();
       if (cityTrim)  query = query.ilike('city', `%${cityTrim}%`);
       if (dateFrom)  query = query.gte('date', dateFrom);
       if (dateTo)    query = query.lte('date', dateTo);
-
       if (minGuests !== '' && !Number.isNaN(Number(minGuests))) query = query.gte('guests', Number(minGuests));
       if (maxGuests !== '' && !Number.isNaN(Number(maxGuests))) query = query.lte('guests', Number(maxGuests));
-
       if (minBudget !== '' && !Number.isNaN(Number(minBudget))) query = query.gte('budget', Number(minBudget));
       if (maxBudget !== '' && !Number.isNaN(Number(maxBudget))) query = query.lte('budget', Number(maxBudget));
 
@@ -85,21 +81,11 @@ export default function OpenEvents(){
     }
   }, [q, city, dateFrom, dateTo, minGuests, maxGuests, minBudget, maxBudget, sort]);
 
-  // initial load
-  useEffect(() => {
-    if (session) load();
-  }, [session, load]);
+  useEffect(() => { if (session) load(); }, [session, load]);
 
-  // Helpers
   function resetFilters(){
-    setQ('');
-    setCity('');
-    setDateFrom('');
-    setDateTo('');
-    setMinGuests('');
-    setMaxGuests('');
-    setMinBudget('');
-    setMaxBudget('');
+    setQ(''); setCity(''); setDateFrom(''); setDateTo('');
+    setMinGuests(''); setMaxGuests(''); setMinBudget(''); setMaxBudget('');
     setSort('soonest');
   }
 
@@ -173,31 +159,58 @@ export default function OpenEvents(){
         <div style={{marginTop:16, color:'#666'}}>Geen open events gevonden met deze filters.</div>
       ) : (
         <div style={{display:'grid', gap:12, marginTop:16}}>
-          {events.map(ev => (
-            <div key={ev.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
-              <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', gap:12, flexWrap:'wrap'}}>
-                <h3 style={{margin:'4px 0'}}>{ev.title || 'Event'}</h3>
-                <div style={{fontSize:12, color:'#666'}}>
-                  Geplaatst: {new Date(ev.created_at).toLocaleDateString('nl-NL')}
+          {events.map(ev => {
+            const photo = Array.isArray(ev.photos) && ev.photos.length > 0 ? ev.photos[0] : null;
+            return (
+              <div key={ev.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
+                <div style={{display:'grid', gridTemplateColumns:'120px 1fr', gap:12, alignItems:'stretch'}}>
+                  {/* Thumbnail links */}
+                  <div style={{width: '100%', height: 90, borderRadius: 8, overflow:'hidden', background:'#f3f3f3', border:'1px solid #eee'}}>
+                    {photo ? (
+                      <img
+                        src={photo}
+                        alt=""
+                        style={{width:'100%', height:'100%', objectFit:'cover', display:'block'}}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div style={{height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#888', fontSize:12}}>
+                        Geen foto
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Content rechts */}
+                  <div>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', gap:12, flexWrap:'wrap'}}>
+                      <h3 style={{margin:'4px 0'}}>{ev.title || 'Event'}</h3>
+                      <div style={{fontSize:12, color:'#666'}}>
+                        Geplaatst: {new Date(ev.created_at).toLocaleDateString('nl-NL')}
+                      </div>
+                    </div>
+
+                    <div style={{fontSize:14, color:'#555'}}>
+                      {ev.date ? <>Datum: <b>{new Date(ev.date).toLocaleDateString('nl-NL')}</b> • </> : null}
+                      Gasten: <b>{ev.guests ?? '?'}</b>
+                      {ev.city ? <> • Plaats: <b>{ev.city}</b></> : null}
+                      {typeof ev.budget === 'number' ? <> • Budget: <b>€ {ev.budget.toLocaleString('nl-NL')}</b></> : null}
+                    </div>
+
+                    {ev.description && (
+                      <p style={{marginTop:8, color:'#333'}}>
+                        {ev.description.length > 180 ? ev.description.slice(0,180) + '…' : ev.description}
+                      </p>
+                    )}
+
+                    <div style={{display:'flex', gap:10, marginTop:8}}>
+                      <Link to={`/events/${ev.id}/bid`}>Bied op dit event</Link>
+                      {/* Optioneel: <Link to={`/owners/${ev.owner_id}`}>Bekijk owner-profiel</Link> */}
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div style={{fontSize:14, color:'#555'}}>
-                {ev.date ? <>Datum: <b>{new Date(ev.date).toLocaleDateString('nl-NL')}</b> • </> : null}
-                Gasten: <b>{ev.guests ?? '?'}</b>
-                {ev.city ? <> • Plaats: <b>{ev.city}</b></> : null}
-                {typeof ev.budget === 'number' ? <> • Budget: <b>€ {ev.budget.toLocaleString('nl-NL')}</b></> : null}
-              </div>
-              {ev.description && (
-                <p style={{marginTop:8, color:'#333'}}>
-                  {ev.description.length > 180 ? ev.description.slice(0,180) + '…' : ev.description}
-                </p>
-              )}
-              <div style={{display:'flex', gap:10, marginTop:8}}>
-                <Link to={`/events/${ev.id}/bid`}>Bied op dit event</Link>
-                {/* Optioneel: <Link to={`/owners/${ev.owner_id}`}>Bekijk owner-profiel</Link> */}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
